@@ -11,8 +11,19 @@ see <https://opensource.org/licenses/Apache-2.0>
 
 import os
 import pandas as pd
-import numpy as np
 from datetime import datetime
+import glob
+
+class DataPathWays():
+    def __init__(self, working_path):
+        self.working_path = working_path
+        
+    def basin_id_finder(self, working_path):
+        filepath = os.path.join(working_path,'camels', 'camels_03', 'GW_data')
+        result = glob.glob(filepath + "/*.csv")
+        all_basin_names = [os.path.basename(path)[:8] for path in result]
+        return all_basin_names
+        
 
 class DataforIndividual():
     def __init__(self, working_path, basin_id):
@@ -24,42 +35,60 @@ class DataforIndividual():
         assert (len(basin_id) == 8 and basin_id.isdigit()), "Basin ID can only be represented by 8 digits"
         assert (basin_id in basin_list.values), "Please confirm the basin specified is in basin_list.txt"
 
-    def load_forcing_data(self, working_path, huc_id, basin_id):
-        forcing_path = os.path.join(working_path, 'camels', 'basin_mean_forcing', 'daymet', huc_id,
+    def ground_water_data(self, working_path, huc_id, basin_id):
+        gw_path = os.path.join(working_path,'camels', 'camels_03', 'GW_data', basin_id + '.csv')
+        gw_data = pd.read_csv(gw_path)
+        gw_data['date'] = pd.to_datetime(gw_data['date'], dayfirst=True, errors='ignore')
+        return gw_data
+    
+    def load_force_data(self, working_path, huc_id, basin_id):
+        forcing_path = os.path.join(working_path, 'camels', 'camels_03', 'basin_mean_forcing',
                                     basin_id + '_lump_cida_forcing_leap.txt')
-        forcing_data = pd.read_csv(forcing_path, sep="\s+|;|:", header=0, skiprows=3, engine='python')
-        forcing_data.rename(columns={"Mnth": "Month"}, inplace=True)
-        forcing_data['date'] = pd.to_datetime(forcing_data[['Year', 'Month', 'Day']])
-        forcing_data['dayl(day)'] = forcing_data['dayl(s)'] / 86400
-        forcing_data['tmean(C)'] = (forcing_data['tmin(C)'] + forcing_data['tmax(C)']) / 2
-
-        ## load area from header
+        force_data =  pd.read_csv(forcing_path, sep="\s+|;|:", header=0, skiprows=3, engine='python')
+        force_data.rename(columns={"Mnth": "Month"}, inplace=True)
+        force_data['date'] = pd.to_datetime(force_data[['Year', 'Month', 'Day']], dayfirst=True, errors='ignore')
+        force_data['dayl(day)'] =  force_data['dayl(s)']/ 86400
         with open(forcing_path, 'r') as fp:
             content = fp.readlines()
             area = int(content[2])
-
-        return forcing_data, area
-
+        return area, force_data
+    
     def load_flow_data(self, working_path, huc_id, basin_id, area):
-        flow_path = os.path.join(working_path, 'camels', 'usgs_streamflow', huc_id,
+        flow_path = os.path.join(working_path, 'camels', 'camels_03','usgs_streamflow',
                                  basin_id + '_streamflow_qc.txt')
         flow_data = pd.read_csv(flow_path, sep="\s+", names=['Id', 'Year', 'Month', 'Day', 'Q', 'QC'],
                                 header=None, engine='python')
-        flow_data['date'] = pd.to_datetime(flow_data[['Year', 'Month', 'Day']])
+        flow_data['date'] = pd.to_datetime(flow_data[['Year', 'Month', 'Day']], dayfirst=True, errors='ignore')
         flow_data['flow(mm)'] = 28316846.592 * flow_data['Q'] * 86400 / (area * 10 ** 6)
         return flow_data
 
+    def merge_data(self,working_path, huc_id, basin_id, gw_data, missing_cols):
+        area, force_data = self.load_force_data(working_path, huc_id, basin_id)
+        flow_data = self.load_flow_data(working_path, huc_id, basin_id, area)
+        for col in missing_cols:
+            if col in flow_data.columns:
+                merge_data = flow_data[['date',col]]
+            elif col in force_data.columns:
+                merge_data = force_data[['date',col]]
+            gw_data = pd.merge(gw_data, merge_data, on='date')    
+        final_df = gw_data[['date','prcp(mm/day)', 'tmean(C)', 'dayl(day)', 'srad(W/m2)', 'vp(Pa)', 'flow(mm)','GW(feet)']]
+        return final_df
+        
     def load_data(self):
         basin_list = pd.read_csv(os.path.join(self.working_path, 'basin_list.txt'),
                                  sep='\t', header=0, dtype={'HUC': str, 'BASIN_ID': str})
         self.check_validation(basin_list, self.basin_id)
         huc_id = basin_list[basin_list['BASIN_ID'] == self.basin_id]['HUC'].values[0]
-        forcing_data, area = self.load_forcing_data(self.working_path, huc_id, self.basin_id)
-        flow_data = self.load_flow_data(self.working_path, huc_id, self.basin_id, area)
-        merged_data = pd.merge(forcing_data, flow_data, on='date')
-        merged_data = merged_data[(merged_data['date'] >= datetime(1980, 10, 1)) &
-                                  (merged_data['date'] <= datetime(2010, 9, 30))]
-        merged_data = merged_data.set_index('date')
-        pd_data = merged_data[['prcp(mm/day)', 'tmean(C)', 'dayl(day)', 'srad(W/m2)', 'vp(Pa)', 'flow(mm)']]
+        gw_data = self.ground_water_data(self.working_path, huc_id, self.basin_id)
+        data_cols = ['prcp(mm/day)', 'tmean(C)', 'dayl(day)', 'srad(W/m2)', 'vp(Pa)', 'flow(mm)','GW(feet)']
+        missing_col = [col for col in data_cols if col not in gw_data.columns]
+
+        if missing_col != []:
+            gw_data = self.merge_data(self.working_path, huc_id, self.basin_id, gw_data, missing_col)
+
+        final_gw_data = gw_data[(gw_data['date'] >= datetime(1980, 10, 1)) &
+                                  (gw_data['date'] <= datetime(2010, 9, 30))]
+        final_gw_data.sort_values(by='date', inplace = True) 
+        final_gw_data = final_gw_data.set_index('date')
         print('Data in basin #{} at huc #{} has been successfully loaded.'.format(self.basin_id, huc_id))
-        return pd_data
+        return final_gw_data

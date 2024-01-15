@@ -9,9 +9,8 @@ You should have received a copy of the Apache-2.0 license along with the code. I
 see <https://opensource.org/licenses/Apache-2.0>
 """
 
-from keras.utils.generic_utils import get_custom_objects
 from keras import initializers, constraints, regularizers
-from keras.layers import Layer, Dense, Lambda, Activation
+from keras.layers import Layer
 import keras.backend as K
 import tensorflow as tf
 
@@ -190,14 +189,14 @@ class PRNNLayer(Layer):
         m = self.snowbucket(s0, tmean, self.ddf, self.tmax)
         [et, qsub, qsurf] = self.soilbucket(s1, pet, self.f, self.smax, self.qmax)
 
-        if self.mode == "normal":
-            return qsub + qsurf
+        if self.mode == "normal": 
+            return K.concatenate([qsub + qsurf, qsub], axis=-1)
         elif self.mode == "analysis":
             return K.concatenate([s0, s1, m, et, qsub, qsurf], axis=-1)
 
     def compute_output_shape(self, input_shape):
         if self.mode == "normal":
-            return (input_shape[0], input_shape[1], 1)
+            return (input_shape[0], input_shape[1], 2)
         elif self.mode == "analysis":
             return (input_shape[0], input_shape[1], 6)
 
@@ -255,14 +254,15 @@ class ScaleLayer(Layer):
         super(ScaleLayer, self).build(input_shape)
 
     def call(self, inputs):
-        met = inputs[:, :, :-1]
-        flow = inputs[:, :, -1:]
+        met = inputs[:, :, :-2]
+        flow = inputs[:, :, -2:-1]
+        gw = inputs[:, :, -1:]
 
         self.met_center = K.mean(met, axis=-2, keepdims=True)
         self.met_scale = K.std(met, axis=-2, keepdims=True)
         self.met_scaled = (met - self.met_center) / self.met_scale
 
-        return K.concatenate([self.met_scaled, flow], axis=-1)
+        return K.concatenate([self.met_scaled, flow, gw], axis=-1)
 
     def compute_output_shape(self, input_shape):
         return input_shape

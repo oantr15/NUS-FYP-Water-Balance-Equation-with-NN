@@ -5,7 +5,7 @@
 - [Tips on the regional model](#tips-on-the-regional-model)
 
 ## Overview
-The code demonstrates the Keras implementation of the hybrid DL model as proposed in paper "***Improving AI system awareness of geoscience knowledge: Symbiotic integration of physical approaches and deep learning***"  published in *Geophysical Research Letters*. [[link to the paper]](https://doi.org/10.1029/2020GL088229)
+The code is adapted from the Keras implementation of the hybrid DL model as proposed in paper "***Improving AI system awareness of geoscience knowledge: Symbiotic integration of physical approaches and deep learning***"  published in *Geophysical Research Letters*. [[link to the paper]](https://doi.org/10.1029/2020GL088229)
 
 Please refer to the file `License.txt` for the license governing this code.
 
@@ -13,7 +13,7 @@ If you use this repository in your work, please cite:
 
 > **Jiang S., Zheng Y., & Solomatine D.. (2020) Improving AI system awareness of geoscience knowledge: Symbiotic integration of physical approaches and deep learning. *Geophysical Research Letters*, 47. DOI: 10.1029/2020GL088229**
 
-If you have any questions or suggestions with the code or find a bug, please let us know. You are welcome to [raise an issue here](https://github.com/oreopie/physics-aware-dl/issues) or contact Shijie Jiang at *jiangsj(at)mail.sustech.edu.cn*
+If you have any questions or suggestions with the code or find a bug, please let us know. You are welcome to [raise an issue here](https://github.com/oreopie/physics-aware-dl/issues) or contact Lim Chin Seng at *E0543587(at)mail.u.nus.edu*
 
 ------
 
@@ -31,7 +31,7 @@ The code was tested with Python 3.6. To use this code, please do:
 2. Install dependencies:
 
    ```shell
-   pip install numpy==1.16.4 pandas scipy tensorflow==1.14 keras==2.3.1 matplotlib jupyter scikit-learn
+   pip install numpy==1.17.0 pandas==1.1.5 scipy tensorflow==1.14 keras==2.3.1 matplotlib jupyter scikit-learn h5py==2.10.0
    ```
 
    Note that the latest version of `tensorflow` is `2.0`, while the **core NN layers (P-RNN)** is built under `tensorflow 1.x`. For this implementation, `tensorflow v1.14` is recommended.
@@ -51,31 +51,6 @@ The code was tested with Python 3.6. To use this code, please do:
        |---18\
    ```
 
-4. Start `Jupyter Notebook` and run the `demo_single.ipynb` locally.
+4. Run any python application and run the `Test Code.py` locally.
 ------
 
-## Tips on the regional model
-
-To implement the regional model (main pipeline + parameterization pipeline) as developed in the study, we provide `RegionalPRNNLayer`, `RegionalConv1Layer`, and `RegionalConv2Layer` classes in the `libs\hydrolayer.py`. Below is a demo to use the classes for buiding the regional model:
-
-   ```python
-from libs.hydrolayer import RegionalPRNNLayer, RegionalConv1Layer, RegionalConv2Layer, ScaleLayer
-
-x_forcing = Input(shape=train_forcing[0].shape[], name='Input_forcing')
-x_attrs   = Input(shape=train_attrs[0].shape, name='Input_attrs')
-hydro = RegionalPRNNLayer(h_nodes=32, seed=200, name='RegionalPRNN')([x_forcing, x_attrs])
-
-x_forcing_scaled = ScaleLayer(name='ScaleForcing')(x_forcing)
-x_new = Concatenate(axis=-1, name='ConcatBW')([x_forcing_scaled, hydro])
-
-conv1 = RegionalConv1Layer(h_nodes=8, seed=200, name='RegionalConv1')([x_new, x_attrs])
-conv2 = RegionalConv2Layer(h_nodes=8, seed=200, name='RegionalConv2')([conv1, x_attrs])
-
-model = Model([x_forcing, x_attrs], conv2)
-   ```
-
-Please note:
-1. `x_forcing` represents the meteorological time sequences with a shape of `[sample size, sequence length, 5]`, where the first three variables should be *precipitation*, *mean temperature*, and *day length*.
-2. `x_attrs` represents the catchment attributes with a shape of `[sample size, 27]`, where the attribute values must be scaled in advance (I recommend using the standardization).
-3. Slightly different from the conceptual diagram in the paper, we merge the parameterization into respective layers directly in the implementation. You can also separate each merged layer into two layers by treating the generated `theta_p` and `theta_n` as explicit variables.
-4. Please read carefully the help notes in each developed layer if you would like to adapt the architectures for your research.

@@ -92,7 +92,6 @@ class DataforIndividual():
         final_gw_data = gw_data[(gw_data['date'] >= datetime(1980, 10, 1)) &
                                   (gw_data['date'] <= datetime(2010, 9, 30))]
         final_gw_data.sort_values(by='date', inplace = True) 
-        final_gw_data['GW(feet)'] = final_gw_data['GW(feet)']
         
         final_gw_data = final_gw_data.set_index('date')
         print('Data in basin #{} at huc #{} has been successfully loaded.'.format(self.basin_id, huc_id))

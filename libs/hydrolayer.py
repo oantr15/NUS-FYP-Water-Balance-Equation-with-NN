@@ -61,222 +61,151 @@ class PRNNLayer(Layer):
                                     initializer=initializers.Constant(value=0.5),
                                     constraint=constraints.min_max_norm(min_value=0.0, max_value=1.0, rate=0.9),
                                     trainable=True)
-        self.spmax = self.add_weight(name='spmax', shape=(1,),
-                                    initializer=initializers.Constant(value=0.5),
-                                    constraint=constraints.min_max_norm(min_value=1/15, max_value=1.0, rate=0.9),
-                                    trainable=True)
-        self.qpmax = self.add_weight(name='qpmax', shape=(1,),
-                                    initializer=initializers.Constant(value=0.5),
-                                    constraint=constraints.min_max_norm(min_value=0.2, max_value=1.0, rate=0.9),
-                                    trainable=True)
-        self.kp = self.add_weight(name='kp', shape=(1,),
-                                    initializer=initializers.Constant(value=0.5),
-                                    constraint=constraints.min_max_norm(min_value= 0.1, max_value=1.0, rate=0.9),
-                                    trainable = True)
-        self.sgmax = self.add_weight(name='sgmax', shape=(1,),
-                                    initializer=initializers.Constant(value=0.5),
-                                    constraint=constraints.min_max_norm(min_value=1/15, max_value=1.0, rate=0.9),
-                                    trainable=True)
-        self.qgmax = self.add_weight(name='qgmax', shape=(1,),
-                                    initializer=initializers.Constant(value=0.5),
-                                    constraint=constraints.min_max_norm(min_value=0.2, max_value=1.0, rate=0.9),
-                                    trainable=True)        
-        self.Kl = self.add_weight(name='Kl', shape=(1,),
-                                    initializer=initializers.Constant(value=0.5),
-                                    constraint=constraints.min_max_norm(min_value= 0.1, max_value=1.0, rate=0.9),
-                                    trainable = True)
-        self.Kn = self.add_weight(name='Kn', shape=(1,),
-                                    initializer=initializers.Constant(value=0.5),
-                                    constraint=constraints.min_max_norm(min_value= 0.1, max_value=1.0, rate=0.9),
-                                    trainable = True)
+        self.k = self.add_weight(name='k', shape=(1,),
+                                 initializer=initializers.Constant(value=0.5),
+                                 constraint=constraints.min_max_norm(min_value=0.0, max_value=10, rate=0.9),
+                                 trainable=True)
 
         super(PRNNLayer, self).build(input_shape)
-        
+
     def heaviside(self, x):
-      """
-      A smooth approximation of Heaviside step function
-          if x < 0: heaviside(x) ~= 0
-          if x > 0: heaviside(x) ~= 1
-      """
+        """
+        A smooth approximation of Heaviside step function
+            if x < 0: heaviside(x) ~= 0
+            if x > 0: heaviside(x) ~= 1
+        """
 
-      return (K.tanh(5 * x) + 1) / 2
-   
+        return (K.tanh(5 * x) + 1) / 2
+
     def rainsnowpartition(self, p, t, tmin):
-      """
-      Equations to partition incoming precipitation into rain or snow
-          if t < tmin:
-              psnow = p
-              prain = 0
-          else:
-              psnow = 0
-              prain = p
-      """
-      tmin = tmin * -3  # (-3.0, 0)
+        """
+        Equations to partition incoming precipitation into rain or snow
+            if t < tmin:
+                psnow = p
+                prain = 0
+            else:
+                psnow = 0
+                prain = p
+        """
+        tmin = tmin * -3  # (-3.0, 0)
 
-      psnow = self.heaviside(tmin - t) * p
-      prain = self.heaviside(t - tmin) * p
+        psnow = self.heaviside(tmin - t) * p
+        prain = self.heaviside(t - tmin) * p
 
-      return [psnow, prain]
+        return [psnow, prain]
 
-    def snowbucket(self, s1, t, ddf, tmax):
-      """
-      Equations for the snow bucket
-          if t > tmax:
-              if s0 > 0:
-                  melt = min(s0, ddf*(t - tmax))
-              else:
-                  melt = 0
-          else:
-              melt = 0
-      """
-      ddf = ddf * 5  # (0, 5.0)
-      tmax = tmax * 3  # (0, 3.0)
+    def snowbucket(self, s0, t, ddf, tmax):
+        """
+        Equations for the snow bucket
+            if t > tmax:
+                if s0 > 0:
+                    melt = min(s0, ddf*(t - tmax))
+                else:
+                    melt = 0
+            else:
+                melt = 0
+        """
+        ddf = ddf * 5  # (0, 5.0)
+        tmax = tmax * 3  # (0, 3.0)
 
-      melt = self.heaviside(t - tmax) * self.heaviside(s1) * K.minimum(s1, ddf * (t - tmax))
+        melt = self.heaviside(t - tmax) * self.heaviside(s0) * K.minimum(s0, ddf * (t - tmax))
 
-      return melt
-  
-    def preferentialbucket(self, s2, p, kp, spmax, qpmax,f):
-      f = f / 10
-      spmax = spmax * 1950 #(210, 3150)
-       
-      qpmax = qpmax * 40 #(8,40)
-      
-      qpref = self.heaviside(s2)*self.heaviside(s2-spmax)*qpmax + \
-              self.heaviside(s2)*self.heaviside(spmax-s2)*kp*p*K.exp(-1 * f * (spmax - s2))
-      
-      return qpref
-      
+        return melt
 
-    def capillarybucket(self, s3, pet, f, smax, qmax):
-      """
-          if s1 < 0:
-              et = 0
-              qsub = 0
-              qsurf = 0
-          elif s1 > smax:
-              et = pet
-              qsub = qmax
-              qsurf = s1 - smax
-          else:
-              et = pet * (s1 / smax)
-              qsub = qmax * exp(-f * (smax - s1))
-              qsurf = 0
-      """
-      f = f / 10  # (0, 0.1)
-      smax = smax * 1950  # (210, 3150)
-      qmax = qmax * 50 # (10, 50)
+    def soilbucket(self, s1, pet, f, smax, qmax, k):
+        """
+        Equations for the soil bucket
+            if s1 < 0:
+                et = 0
+                qsub = 0
+                qsurf = 0
+            elif s1 > smax:
+                et = pet
+                qsub = qmax
+                qsurf = s1 - smax
+            else:
+                et = pet * (s1 / smax)
+                qsub = qmax * exp(-f * (smax - s1))
+                qsurf = 0
+        """
+        k = k / 10  # (0, 1)
+        f = f / 10  # (0, 0.1)
+        smax = smax * 1500  # (100, 1500)
+        qmax = qmax * 50  # (10, 50)
 
-      et = self.heaviside(s3) * self.heaviside(s3 - smax) * pet + \
-          self.heaviside(s3) * self.heaviside(smax - s3) * pet * (s3 / smax)
-      qsub = self.heaviside(s3) * self.heaviside(s3 - smax) * qmax + \
-          self.heaviside(s3) * self.heaviside(smax - s3) * qmax * K.exp(-1 * f * (smax - s3))
-      qout = self.heaviside(s3) * self.heaviside(s3 - smax) * (s3 - smax)
+        et = self.heaviside(s1) * self.heaviside(s1 - smax) * pet + \
+            self.heaviside(s1) * self.heaviside(smax - s1) * pet * (s1 / smax)
+        qsub = self.heaviside(s1) * self.heaviside(s1 - smax) * qmax + \
+            self.heaviside(s1) * self.heaviside(smax - s1) * qmax * K.exp(-1 * f * (smax - s1))
+        qsurf = self.heaviside(s1) * self.heaviside(s1 - smax) * (s1 - smax)
+        qst = qsub * k 
+        qgr = qsub * (1-k)
 
-      return [et, qsub, qout]
-  
-    def gravitybucket(self, s4, f, p, Kl, Kn, sgmax, qgmax):
-      f = f / 10  # (0, 0.1)
-      Kl = Kl * 0.5
-      Kn = Kn * 0.5
-      sgmax = sgmax * 1950  # (210, 3150)
-      qgmax = qgmax * 40 # (10, 50)
-      
-      
-      qslow = self.heaviside(s4)*self.heaviside(s4-sgmax)* qgmax + \
-          self.heaviside(s4)*self.heaviside(sgmax-s4)*(p*Kl+p*p*Kn)* K.exp(-1 * f * (sgmax - s4))
-      
-      return qslow
-
+        return [et, qsurf, qst, qgr]
 
     def step_do(self, step_in, states):  # Define step function for the RNN
-      s1 = states[0][:, 0:1]  # Snow bucket
-      s2 = states[0][:, 1:2]  # Preferential bucket
-      s3 = states[0][:, 2:3]  # Capillary bucket
-      s4 = states[0][:, 3:4]  # Gravity buckect
-      # Load the current input column
-      p = step_in[:, 0:1]
-      t = step_in[:, 1:2]
-      dayl = step_in[:, 2:3]
-      pet = step_in[:, 3:4]
+        s0 = states[0][:, 0:1]  # Snow bucket
+        s1 = states[0][:, 1:2]  # Soil bucket
 
-      # Partition precipitation into rain and snow
-      
-      [_ps, _pr] = self.rainsnowpartition(p, t, self.tmin)
-      # Snow bucket
-      _m = self.snowbucket(s1, t, self.ddf, self.tmax)
-      
-      _qpref = self.preferentialbucket(s2, p, self.kp, self.spmax, self.qpmax, self.f)
-      
-      # Capillary bucket
-      [_et, _qsub, _qout] = self.capillarybucket(s3, pet, self.f, self.smax, self.qmax)
-      
-      #Gravity bukect
-      _qslow = self.gravitybucket(s4, self.f, p, self.Kl, self.Kn, self.sgmax, self.qgmax)
+        # Load the current input column
+        p = step_in[:, 0:1]
+        t = step_in[:, 1:2]
+        pet = step_in[:, 2:3]
 
+        # Partition precipitation into rain and snow
+        [_ps, _pr] = self.rainsnowpartition(p, t, self.tmin)
+        # Snow bucket
+        _m = self.snowbucket(s0, t, self.ddf, self.tmax)
+        # Soil bucket
+        [_et, _qsurf, _qst, _qgr] = self.soilbucket(s1, pet, self.f, self.smax, self.qmax, self.k)
 
-      # Water balance equations
+        # Water balance equations
+        _ds0 = _ps - _m
+        _ds1 = _pr + _m - _et - _qsurf - _qst - _qgr
 
-      _ds1 = _ps - _m
-      _ds2 = _qpref
-      _ds3 = _pr + _m - _et - _qsub - _qout
-      _ds4 = _qslow
+        # Record all the state variables which rely on the previous step
+        next_s0 = s0 + K.clip(_ds0, -1e5, 1e5)
+        next_s1 = s1 + K.clip(_ds1, -1e5, 1e5)
 
+        step_out = K.concatenate([next_s0, next_s1], axis=1)
 
-      # Record all the state variables which rely on the previous step
-      next_s1 = s1 + K.clip(_ds1, -1e5, 1e5)
-      next_s2 = s2 + K.clip(_ds2, -1e5, 1e5)
-      next_s3 = s3 + K.clip(_ds3, -1e5, 1e5)
-      next_s4 = s4 + K.clip(_ds4, -1e5, 1e5)
-
-      step_out = K.concatenate([ next_s1, next_s2, next_s3, next_s4], axis=1)
-
-      return step_out, [step_out]
+        return step_out, [step_out]
 
     def call(self, inputs):
-      # Load the input vector
-      prcp = inputs[:, :, 0:1]
-      tmean = inputs[:, :, 1:2]
-      dayl = inputs[:, :, 2:3]
+        # Load the input vector
+        prcp = inputs[:, :, 0:1]
+        tmean = inputs[:, :, 1:2]
+        dayl = inputs[:, :, 2:3]
 
-      # Calculate PET using Hamon’s formulation
-      pet = 29.8 * (dayl * 24) * 0.611 * K.exp(17.3 * tmean / (tmean + 237.3)) / (tmean + 273.2)
+        # Calculate PET using Hamon’s formulation
+        pet = 29.8 * (dayl * 24) * 0.611 * K.exp(17.3 * tmean / (tmean + 237.3)) / (tmean + 273.2)
 
-      # Concatenate pprcp, tmean, and pet into a new input
-      new_inputs = K.concatenate((prcp, tmean, dayl, pet), axis=-1)
+        # Concatenate pprcp, tmean, and pet into a new input
+        new_inputs = K.concatenate((prcp, tmean, pet), axis=-1)
 
-      # Define 2 initial state variables at the beginning
-      init_states = [K.zeros((K.shape(new_inputs)[0], 4))]
+        # Define 2 initial state variables at the beginning
+        init_states = [K.zeros((K.shape(new_inputs)[0], 2))]
 
-      # Recursively calculate state variables by using RNN
-      _, outputs, _ = K.rnn(self.step_do, new_inputs, init_states)
+        # Recursively calculate state variables by using RNN
+        _, outputs, _ = K.rnn(self.step_do, new_inputs, init_states)
 
-      s1 = outputs[:, :, 0:1]
-      s2 = outputs[:, :, 1:2]
-      s3 = outputs[:, :, 2:3]
-      s4 = outputs[:, :, 3:4]
+        s0 = outputs[:, :, 0:1]
+        s1 = outputs[:, :, 1:2]
 
+        # Calculate final process variables
+        m = self.snowbucket(s0, tmean, self.ddf, self.tmax)
+        [et, qsub, qst, qgr] = self.soilbucket(s1, pet, self.f, self.smax, self.qmax, self.k)
 
-      # Calculate final process variables
-      m = self.snowbucket(s1, tmean, self.ddf, self.tmax)
-      qpref = self.preferentialbucket(s2, prcp, self.kp, self.spmax, self.qpmax, self.f)
-      [et, qsub, qout] = self.capillarybucket(s3, pet, self.f, self.smax, self.qmax)
-      qslow = self.gravitybucket(s4, self.f, prcp, self.Kl, self.Kn, self.sgmax, self.qgmax)
-
-      ##groundwater: qsub-qpref-qslow
-      ##streamflow: qout + qpref + qslow
-      if self.mode == "normal":
-          return K.concatenate([qout + qpref + qslow, qsub - qpref - qslow ], axis=-1)
-      
-      elif self.mode == "analysis":
-          return K.concatenate([s1, s2, s3, s4, m, et, qsub, qout, qpref, qslow], axis=-1)
-      
+        if self.mode == "normal": 
+            return K.concatenate([qsub + qst, qgr], axis=-1)
+        elif self.mode == "analysis":
+            return K.concatenate([s0, s1, m, et, qsub, qst, qgr], axis=-1)
 
     def compute_output_shape(self, input_shape):
-      if self.mode == "normal":
-          return (input_shape[0], input_shape[1], 2)
-      elif self.mode == "analysis":
-          return (input_shape[0], input_shape[1], 12)
+        if self.mode == "normal":
+            return (input_shape[0], input_shape[1], 2)
+        elif self.mode == "analysis":
+            return (input_shape[0], input_shape[1], 6)
 
 
 class ConvLayer(Layer):

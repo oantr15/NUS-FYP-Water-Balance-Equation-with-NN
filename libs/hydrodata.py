@@ -62,9 +62,7 @@ class DataforIndividual():
         flow_data['flow(mm)'] = 28316846.592 * flow_data['Q'] * 86400 / (area * 10 ** 6)
         return flow_data
 
-    def merge_data(self,working_path, huc_id, basin_id, gw_data, missing_cols):
-        area, force_data = self.load_force_data(working_path, huc_id, basin_id)
-        flow_data = self.load_flow_data(working_path, huc_id, basin_id, area)
+    def merge_data(self, working_path, huc_id, basin_id, gw_data, missing_cols, force_data, flow_data):
         for col in missing_cols:
             if col in flow_data.columns:
                 merge_data = flow_data[['date',col]]
@@ -73,22 +71,29 @@ class DataforIndividual():
             gw_data = pd.merge(gw_data, merge_data, on='date')    
         final_df = gw_data[['date','prcp(mm/day)', 'tmean(C)', 'dayl(day)', 'srad(W/m2)', 'vp(Pa)', 'flow(mm)','GW(feet)']]
         return final_df
-        
+    
     def load_data(self):
         basin_list = pd.read_csv(os.path.join(self.working_path, 'basin_list.txt'),
                                  sep='\t', header=0, dtype={'HUC': str, 'BASIN_ID': str})
         self.check_validation(basin_list, self.basin_id)
         huc_id = basin_list[basin_list['BASIN_ID'] == self.basin_id]['HUC'].values[0]
         gw_data = self.ground_water_data(self.working_path, huc_id, self.basin_id)
+        
         data_cols = ['prcp(mm/day)', 'tmean(C)', 'dayl(day)', 'srad(W/m2)', 'vp(Pa)', 'flow(mm)','GW(feet)']
         missing_col = [col for col in data_cols if col not in gw_data.columns]
-
+        
+        area, force_data = self.load_force_data(self.working_path, huc_id, self.basin_id)
+        flow_data = self.load_flow_data(self.working_path, huc_id, self.basin_id, area)
+        
         if missing_col != []:
-            gw_data = self.merge_data(self.working_path, huc_id, self.basin_id, gw_data, missing_col)
+            gw_data = self.merge_data(self.working_path, huc_id, self.basin_id, gw_data, missing_col,
+                                      force_data, flow_data)
 
         final_gw_data = gw_data[(gw_data['date'] >= datetime(1980, 10, 1)) &
                                   (gw_data['date'] <= datetime(2010, 9, 30))]
         final_gw_data.sort_values(by='date', inplace = True) 
+        final_gw_data['GW(feet)'] = final_gw_data['GW(feet)']
+        
         final_gw_data = final_gw_data.set_index('date')
         print('Data in basin #{} at huc #{} has been successfully loaded.'.format(self.basin_id, huc_id))
         return final_gw_data

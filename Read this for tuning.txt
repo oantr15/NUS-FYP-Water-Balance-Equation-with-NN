@@ -1,0 +1,3 @@
+Change permutation = Test Code.py line 81 and 83 
+Change filter number = Test Code.py line 174, 181, 194, 205, 214 and 223	
+Change kernel size = Test Code.py line 122 and 131

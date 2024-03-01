@@ -29,8 +29,7 @@ os.environ['KMP_WARNINGS'] = '0'
 
 #basin_id = '02296500' # The basin_id can be changed to any 8-digit basin id contained in the basin_list.txt
 working_path = os.getcwd()
-#all_basins = DataPathWays(working_path).basin_id_finder(working_path) #get all basin_id and work with it
-all_basins = ['02053200', '02299950']
+all_basins = DataPathWays(working_path).basin_id_finder(working_path) #get all basin_id and work with it
 
 for basin_id in all_basins:
     hydrodata = DataforIndividual(working_path, basin_id).load_data()
@@ -55,7 +54,7 @@ for basin_id in all_basins:
     ax6.set_ylabel("flow(mm)")
     ax7.set_ylabel('GW(feet)')
     
-    plt.savefig(os.path.join(os.getcwd(),'comparisons','Data for Basin #'+ basin_id + '.png'))
+    # plt.savefig(os.path.join(os.getcwd(),'comparisons','Data for Basin #'+ basin_id + '.png'))
     
     ####################
     #  Period set up   #
@@ -108,12 +107,11 @@ for basin_id in all_basins:
     print(f'{train_x.shape}, {train_y.shape}, {test_x.shape}, and {test_y.shape}')
 
     def create_model(input_shape, seed, num_filters, model_type='hybrid'):
-        """Create a Keras model.
-        -- input_shape: the shape of input, controlling the time sequence length of the P-RNN
-        -- seed: the random seed for the weights initialization of the 1D-CNN layers
-        -- num_filters: the number of filters for the 1D-CNN layer
-        -- model_type: can be 'hybrid', 'physical', or 'common'
-        """
+        # Create a Keras model.
+        # -- input_shape: the shape of input, controlling the time sequence length of the P-RNN
+        # -- seed: the random seed for the weights initialization of the 1D-CNN layers
+        # -- num_filters: the number of filters for the 1D-CNN layer
+        # -- model_type: can be 'hybrid', 'physical', or 'common'
     
         x_input = Input(shape=input_shape, name='Input')
     
@@ -137,13 +135,13 @@ for basin_id in all_basins:
         return model
 
     def train_model(model, train_x, train_y, ep_number, lrate, save_path):
-        """Train a Keras model.
-        -- model: the Keras model object
-        -- train_x, train_y: the input and target for training the model
-        -- ep_number: the maximum epoch number
-        -- lrate: the initial learning rate
-        -- save_path: where the model will be saved
-        """
+        # Train a Keras model.
+        # -- model: the Keras model object
+        # -- train_x, train_y: the input and target for training the model
+        # -- ep_number: the maximum epoch number
+        # -- lrate: the initial learning rate
+        # -- save_path: where the model will be saved
+        
     
         save = callbacks.ModelCheckpoint(save_path, verbose=0, save_best_only=True, monitor='nse_metrics', mode='max',
                                          save_weights_only=True)
@@ -160,11 +158,11 @@ for basin_id in all_basins:
 
 
     def test_model(model, test_x, save_path):
-        """Test a Keras model.
-        -- model: the Keras model object
-        -- test_x: the input for testing the model
-        -- save_path: where the model was be saved
-        """
+        # Test a Keras model.
+        # -- model: the Keras model object
+        # -- test_x: the input for testing the model
+        # -- save_path: where the model was be saved
+        
         model.load_weights(save_path, by_name=True)
         pred_y = model.predict(test_x, batch_size=10000)
     
@@ -262,7 +260,6 @@ for basin_id in all_basins:
         denominator = np.sum((y_true - np.mean(y_true)) ** 2)
     
         return 1 - numerator / denominator
-
     
     # We only evaluate the data in the evaluation period
     date_range = pd.date_range(evaluation_start, evaluation_end)
@@ -301,7 +298,6 @@ for basin_id in all_basins:
     ax3.annotate('Common NN model', xy=(0.05, 0.9), xycoords='axes fraction', size=12)
     
     plt.savefig(os.path.join(os.getcwd(),'comparisons','Streamflow for Basin #'+ basin_id + '.png'))
-
 
     def evaluation_plot_2(ax, plot_set, plot_name, line_color, nse_values, basin_id):
         ax.plot(plot_set['gw_obs'], label="observation", color='black', ls='--')
